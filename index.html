@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>智能家居控制 - 客厅窗户</title>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f7f8fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #333; overflow-x: hidden; -webkit-tap-highlight-color: transparent;}
+        
+        /* --- 3D 场景 --- */
+        .scene { width: 100%; height: 240px; margin: 20px auto; perspective: 1000px; display: flex; justify-content: center; align-items: center; overflow: visible; }
+        .window-wrapper { display: flex; justify-content: center; align-items: center; transform-style: preserve-3d; transform: scale(0.95); }
+        .window-frame { height: 180px; background: #fff; position: relative; z-index: 10; box-sizing: border-box; border-top: 4px solid #4a4a4a; border-bottom: 4px solid #4a4a4a; }
+        
+        /* 窗框定义 */
+        .window-frame.left { width: 90px; border-left: 4px solid #4a4a4a; border-right: 1px solid #999; perspective: 800px; }
+        .window-frame.right { width: 90px; border-right: 4px solid #4a4a4a; border-left: 1px solid #999; perspective: 800px; }
+        .window-frame.middle { width: 165px; border-left: 2px solid #4a4a4a; border-right: 2px solid #4a4a4a; background: rgba(235, 245, 255, 0.4); display: flex; align-items: center; justify-content: center; }
+        .window-frame.middle::after { content: ''; width: 85%; height: 90%; border: 1px solid #ccc; display: block; }
+        
+        /* 窗扇 */
+        .sash { width: 100%; height: 100%; position: absolute; top: 0; left: 0; border: 2px solid #888; background: rgba(235, 245, 255, 0.9); transform-style: preserve-3d; box-sizing: border-box; display: flex; align-items: center; justify-content: center; transition: transform-origin 0.3s; }
+        .sash::before { content: ''; position: absolute; inset: 8px; border: 1px solid #ccc; }
+        .sash::after { content: ''; position: absolute; top: 0; bottom: 0; width: 8px; background: #555; transform: rotateY(90deg); }
+        .window-frame.left .sash::after { right: -4px; } 
+        .window-frame.right .sash::after { left: -4px; }
+
+        /* --- 滑块 --- */
+        .custom-slider-container { position: relative; width: 100%; height: 48px; background-color: #f2f2f2; border-radius: 24px; overflow: hidden; display: flex; align-items: center; user-select: none; }
+        .slider-fill { height: 100%; background-color: #909090; border-radius: 24px; position: absolute; left: 0; top: 0; pointer-events: none; z-index: 5; }
+        .slider-thumb-visual { width: 40px; height: 40px; background-color: white; border-radius: 50%; position: absolute; top: 4px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 500; color: #333; pointer-events: none; z-index: 20; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .slider-input { position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 30; margin: 0; }
+        .label-off { position: absolute; left: 20px; color: white; z-index: 10; font-size: 14px; font-weight: 500; }
+        .label-on { position: absolute; right: 20px; color: #666; z-index: 1; font-size: 14px; font-weight: 500; }
+
+        /* --- 按钮 --- */
+        .master-btn-group { display: flex; justify-content: space-between; align-items: center; padding: 0 12px; }
+        .master-btn { display: flex; flex-direction: column; align-items: center; gap: 8px; background: none; border: none; cursor: pointer; }
+        .master-btn:active .master-icon-bg { background-color: #e5e5e5; transform: scale(0.95); }
+        .master-icon-bg { width: 56px; height: 56px; background-color: #f2f2f2; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+        .master-label { font-size: 13px; color: #666; font-weight: 500; }
+
+        /* Toast 动画 */
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, 10px); }
+            10% { opacity: 1; transform: translate(-50%, 0); }
+            90% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -10px); }
+        }
+        .toast-message {
+            position: fixed;
+            left: 50%;
+            bottom: 100px;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.75);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 14px;
+            z-index: 100;
+            animation: fadeInOut 2s ease-in-out forwards;
+            white-space: nowrap;
+        }
+
+        @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        .animate-slide-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        .card { background: white; border-radius: 16px; padding: 16px; box-shadow: 0 1px 2px rgba(0,0,0,0.02); border: 1px solid rgba(0,0,0,0.04); margin-bottom: 12px; }
+        .icon-container { width: 36px; height: 36px; background: #f0f0f0; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 12px; flex-shrink: 0; }
+        .nav-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; background: #fff; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- 图标定义 ---
+        const IconMasterOpen = () => (
+            <svg width="24" height="24" viewBox="0 0 1024 1024" fill="#333">
+                <path d="M343.893333 857.002667L85.333333 544.853333c-15.018667-18.133333-15.018667-47.573333 0-65.706666l258.56-312.149334a17.024 17.024 0 0 1 27.264 0 26.752 26.752 0 0 1 0 32.853334L112.554667 512l258.56 312.149333a26.752 26.752 0 0 1 0 32.853334 17.024 17.024 0 0 1-27.178667 0zM680.106667 166.997333L938.666667 479.146667c15.018667 18.133333 15.018667 47.573333 0 65.706666l-258.56 312.149334a17.024 17.024 0 0 1-27.221334 0 26.752 26.752 0 0 1 0-32.853334L911.402667 512l-258.56-312.149333a26.752 26.752 0 0 1 0-32.853334 17.024 17.024 0 0 1 27.178666 0z" />
+            </svg>
+        );
+        const IconMasterClose = () => (
+            <svg width="24" height="24" viewBox="0 0 1408 1024" fill="#333">
+                <path d="M1086.165333 857.002667l-258.56-312.149334c-15.018667-18.133333-15.018667-47.573333 0-65.706666l258.56-312.149334a17.024 17.024 0 0 1 27.264 0 26.752 26.752 0 0 1 0 32.853334L854.826667 512l258.56 312.149333a26.752 26.752 0 0 1 0 32.853334 17.024 17.024 0 0 1-27.178667 0zM313.002667 166.997333l258.602666 312.149334c15.018667 18.133333 15.018667 47.573333 0 65.706666l-258.56 312.149334a17.024 17.024 0 0 1-27.264 0 26.752 26.752 0 0 1 0-32.853334L544.426667 512l-258.56-312.149333a26.752 26.752 0 0 1 0-32.853334 17.024 17.024 0 0 1 27.178666 0z" />
+            </svg>
+        );
+        const IconMasterStop = () => (
+            <svg width="24" height="24" viewBox="0 0 1024 1024" fill="#333">
+                <path d="M256 864a32 32 0 1 1-64 0V160a32 32 0 1 1 64 0v704zM832 864a32 32 0 1 1-64 0V160a32 32 0 1 1 64 0v704z" />
+            </svg>
+        );
+        const IconMasterSuspend = () => (
+            <svg width="24" height="24" viewBox="0 0 1024 1024" fill="#333">
+                <path d="M112.32353516 274.94404297h799.35205078v78.95566406H112.32353516z" />
+                <path d="M824.06972656 282.00341797l78.61728516 7.31865234L845.91054687 899.15820313l-78.61640625-7.31953126zM255.59316406 891.80351562l-78.61552734 7.31865235-56.77558594-609.834375 78.61552734-7.31953125z" />
+                <path d="M203.48457031 799.90683594h617.02998047v78.95390625H203.48457031z" />
+                <path d="M823.47822266 961.59921875H200.52177734C124.44101562 961.59921875 62.54492187 900.52753906 62.54492187 825.46103516V198.53984375C62.54492187 123.47246094 124.44101562 62.40078125 200.52177734 62.40078125h622.95644532c76.08164063 0 137.97773438 61.07080078 137.97773437 136.1390625v626.9203125c0 75.06738281-61.89609375 136.1390625-137.97773437 136.1390625zM200.52177734 150.29140625c-27.61875 0-50.08623047 21.64306641-50.08623047 48.2484375v626.9203125c0 26.60537109 22.46748047 48.2484375 50.08623047 48.2484375h622.95644532c27.62050781 0 50.08710938-21.64482422 50.08710937-48.2484375V198.53984375c0-26.60537109-22.46835937-48.2484375-50.08710937-48.2484375H200.52177734z" />
+                <path d="M511.99912109 559.89072266l53.23535157-53.07011719-106.46894532-0.00087891 53.23710938 53.0709961h-0.00351563z" />
+                <path d="M507.01748047 519.09892578c-5.60654297-0.00703125-10.15048828-4.58173828-10.16542969-10.22607422l-0.11162109-50.99765625c-0.01230469-5.63115234 4.53339844-10.18916016 10.13291015-10.17509765l10.14345704 0.01582031c5.60830078 0.00351562 10.15927734 4.57294922 10.1671875 10.209375l0.10458984 51.00644531c0.01230469 5.63027344-4.52021484 10.18740234-10.12324219 10.18212891l-10.14433594-0.01669922-0.00351562 0.00175781z" />
+            </svg>
+        );
+
+        // 新增：设备列表图标
+        const IconDeviceList = () => (
+            <svg width="22" height="22" viewBox="0 0 1024 1024" fill="#383838">
+                <path d="M914.5 653.5c-5.5 0-11 1.1-16 3.3l-0.2 0.1h-0.2L510.2 822.2 122.2 657h-0.2l-0.2-0.1c-5-2.1-10.3-3.3-16-3.3-23.1 0-41.8 19.3-41.8 43.1 0 18 10.7 33.3 25.8 39.8l403.9 172.1 0.4 0.1c10.2 4.4 21.8 4.4 32 0l0.2-0.1c0.1 0 0.1-0.1 0.2-0.1l403.9-172.1c15.1-6.5 25.8-21.8 25.8-39.8 0.1-23.8-18.6-43.1-41.7-43.1z m0-186.5c-7.9-0.2-16 3.2-16 3.2L510.2 635.6 121.8 470.2s-10.3-3.2-16-3.2C82.7 467 64 486.2 64 510c0 17.9 10.7 33.3 25.8 39.7l403.9 172c0.1 0 0.1 0.1 0.2 0.1l0.1 0.1c5 2.1 10.3 3.3 16 3.3 5.7 0 11.1-1.2 16-3.3l0.2-0.1c0.1 0 0.1 0 0.2-0.1l403.9-172c15.1-6.4 25.8-21.8 25.9-39.7 0.1-23.8-18.6-43-41.7-43zM89.8 363.2l403.9 172.1c0.1 0 0.1 0 0.2 0.1l0.1 0.1c5 2.1 10.3 3.2 16 3.2 5.5 0 10.9-1.1 16-3.2l0.2-0.1 0.2-0.1 403.9-172c15.1-6.5 25.8-21.8 25.9-39.7 0-18-10.7-33.3-25.8-39.8L526.5 111.6c-0.1 0-0.1 0-0.2-0.1l-0.2-0.1c-10.2-4.4-21.8-4.4-32 0l-0.1 0.1L89.8 283.7C74.7 290.1 64 305.5 64 323.5c0 17.9 10.7 33.2 25.8 39.7z" />
+            </svg>
+        );
+
+        const IconChevronRight = () => (<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>);
+        const IconBack = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>);
+        const IconMenu = () => (<svg width="24" height="24" viewBox="0 0 24 24" fill="#000"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>);
+        const IconArrowRight = () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18l6-6-6-6"/></svg>);
+
+        const useWindowEngine = (targetValue) => {
+            const [currentValue, setCurrentValue] = useState(targetValue);
+            const [isMoving, setIsMoving] = useState(false);
+            const frameRef = useRef();
+            useEffect(() => {
+                if (Math.abs(currentValue - targetValue) < 0.1) {
+                    setCurrentValue(targetValue);
+                    setIsMoving(false);
+                    return;
+                }
+                setIsMoving(true);
+                const animate = () => {
+                    setCurrentValue(prev => {
+                        const diff = targetValue - prev;
+                        const speedPerFrame = 0.16; 
+                        if (Math.abs(diff) < speedPerFrame) return targetValue;
+                        return prev + (diff > 0 ? speedPerFrame : -speedPerFrame);
+                    });
+                    frameRef.current = requestAnimationFrame(animate);
+                };
+                frameRef.current = requestAnimationFrame(animate);
+                return () => cancelAnimationFrame(frameRef.current);
+            }, [targetValue, currentValue]);
+            return { currentValue, isMoving };
+        };
+
+        const CustomSlider = ({ value, onChange, disabled }) => {
+            const thumbSize = 40; const padding = 4;
+            const leftPos = `calc(${padding}px + (100% - ${padding * 2 + thumbSize}px) * ${value / 100})`;
+            const fillWidth = `calc(${padding}px + (100% - ${padding * 2 + thumbSize}px) * ${value / 100} + ${thumbSize}px + ${padding}px)`;
+            return (
+                <div className="custom-slider-container">
+                    <div className="slider-fill" style={{ width: fillWidth }}></div>
+                    <span className="label-off">关</span>
+                    <span className="label-on">开</span>
+                    <div className="slider-thumb-visual" style={{ left: leftPos }}>
+                        {value > 0 ? Math.round(value) : ""}
+                    </div>
+                    <input type="range" min="0" max="100" step="1" value={value} onChange={(e) => onChange(Number(e.target.value))} disabled={disabled} className="slider-input" />
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [targetLeft, setTargetLeft] = useState(40);
+            const [targetRight, setTargetRight] = useState(0);
+            const [showAngleModal, setShowAngleModal] = useState(false);
+            const [groupSliderValue, setGroupSliderValue] = useState(0);
+
+            // Toast 状态
+            const [toast, setToast] = useState({ show: false, msg: '' });
+            const toastTimeout = useRef(null);
+
+            const showToast = (msg) => {
+                if (toastTimeout.current) clearTimeout(toastTimeout.current);
+                setToast({ show: true, msg });
+                toastTimeout.current = setTimeout(() => setToast({ show: false, msg: '' }), 2000);
+            };
+
+            const [leftMode, setLeftMode] = useState('casement');
+            const [rightMode, setRightMode] = useState('casement');
+            const [leftPending, setLeftPending] = useState(null);
+            const [rightPending, setRightPending] = useState(null);
+
+            const { currentValue: curLeft, isMoving: movingLeft } = useWindowEngine(targetLeft);
+            const { currentValue: curRight, isMoving: movingRight } = useWindowEngine(targetRight);
+            const isAnyMoving = movingLeft || movingRight;
+
+            // --- 核心逻辑 ---
+            const requestUpdate = (side, mode, val) => {
+                const sides = side === 'both' ? ['left', 'right'] : [side];
+                sides.forEach(s => {
+                    const isLeft = s === 'left';
+                    const curMode = isLeft ? leftMode : rightMode;
+                    const curVal = isLeft ? curLeft : curRight;
+                    const setTarget = isLeft ? setTargetLeft : setTargetRight;
+                    const setMode = isLeft ? setLeftMode : setRightMode;
+                    const setPending = isLeft ? setLeftPending : setRightPending;
+
+                    if (curMode !== mode) {
+                        if (curVal === 0) {
+                            setMode(mode);
+                            setTarget(val);
+                            setPending(null);
+                        } else {
+                            setTarget(0);
+                            setPending({ mode, val });
+                        }
+                    } else {
+                        setTarget(val);
+                        setPending(null);
+                    }
+                });
+            };
+
+            useEffect(() => {
+                if (leftPending && curLeft === 0) {
+                    setLeftMode(leftPending.mode);
+                    requestAnimationFrame(() => { setTargetLeft(leftPending.val); setLeftPending(null); });
+                }
+            }, [curLeft, leftPending]);
+
+            useEffect(() => {
+                if (rightPending && curRight === 0) {
+                    setRightMode(rightPending.mode);
+                    requestAnimationFrame(() => { setTargetRight(rightPending.val); setRightPending(null); });
+                }
+            }, [curRight, rightPending]);
+
+            // --- 操作 ---
+            const openAll = () => requestUpdate('both', 'casement', 100);
+            const closeAll = () => requestUpdate('both', leftMode, 0); 
+            const suspendAll = () => requestUpdate('both', 'suspend', 15);
+            const stopAll = () => {
+                setLeftPending(null); setRightPending(null);
+                setTargetLeft(Math.floor(curLeft)); setTargetRight(Math.floor(curRight));
+            };
+
+            const handleSingleSlideLeft = (val) => requestUpdate('left', 'casement', val);
+            const handleSingleSlideRight = (val) => requestUpdate('right', 'casement', val);
+            const triggerLeftSuspend = () => requestUpdate('left', 'suspend', 15);
+            const triggerRightSuspend = () => requestUpdate('right', 'suspend', 15);
+
+            const handleGroupSlide = (val) => {
+                setGroupSliderValue(val);
+                requestUpdate('both', 'casement', val);
+            };
+
+            const openModal = () => {
+                setGroupSliderValue(0);
+                setShowAngleModal(true);
+            };
+
+            const stopLeft = () => { setLeftPending(null); setTargetLeft(Math.floor(curLeft)); };
+            const stopRight = () => { setRightPending(null); setTargetRight(Math.floor(curRight)); };
+            
+            const getStatusDisplay = (current, isMoving) => isMoving ? "运行中" : (current <= 0 ? "已关闭" : (current >= 100 ? "已全开" : `已打开：${Math.round(current)}%`));
+            const getWindowStyle = (isLeft) => {
+                const mode = isLeft ? leftMode : rightMode;
+                const val = isLeft ? curLeft : curRight;
+                if (mode === 'suspend') {
+                    return { transformOrigin: 'top center', transform: `rotateX(-${val * 1.5}deg)` };
+                } else {
+                    return { transformOrigin: isLeft ? 'left center' : 'right center', transform: `rotateY(${isLeft ? val * 0.9 : -val * 0.9}deg)` };
+                }
+            };
+
+            return (
+                <div className="max-w-md mx-auto min-h-screen bg-[#F7F8FA] flex flex-col relative">
+                    {/* 顶部导航 */}
+                    <div className="nav-bar">
+                        <div onClick={() => showToast('已经是第1页')} className="cursor-pointer p-1 -ml-1">
+                            <IconBack />
+                        </div>
+                        <span className="font-bold text-lg">客厅窗户</span>
+                        <div onClick={() => showToast('功能开发中')} className="cursor-pointer p-1 -mr-1">
+                            <IconMenu />
+                        </div>
+                    </div>
+                    
+                    <div className="px-4 py-2 text-sm text-gray-500 mb-2">
+                        <span className="text-black">在线</span> 1个设备离线
+                    </div>
+
+                    {/* 3D 动画 */}
+                    <div className="scene">
+                        <div className="window-wrapper">
+                            <div className="window-frame left"><div className="sash" style={getWindowStyle(true)}></div></div>
+                            <div className="window-frame middle"></div>
+                            <div className="window-frame right"><div className="sash" style={getWindowStyle(false)}></div></div>
+                        </div>
+                    </div>
+
+                    <div className="px-4 pb-8 flex-1 overflow-y-auto">
+                        <div className="card" style={{ paddingBottom: 0 }}>
+                            <div className="master-btn-group pt-2 pb-4">
+                                <button className="master-btn" onClick={openAll}>
+                                    <div className="master-icon-bg"><IconMasterOpen /></div>
+                                    <span className="master-label">全开</span>
+                                </button>
+                                <button className="master-btn" onClick={stopAll}>
+                                    <div className="master-icon-bg"><IconMasterStop /></div>
+                                    <span className="master-label">全停</span>
+                                </button>
+                                <button className="master-btn" onClick={closeAll}>
+                                    <div className="master-icon-bg"><IconMasterClose /></div>
+                                    <span className="master-label">全关</span>
+                                </button>
+                                <button className="master-btn" onClick={suspendAll}>
+                                    <div className="master-icon-bg"><IconMasterSuspend /></div>
+                                    <span className="master-label">全悬开</span>
+                                </button>
+                            </div>
+                            <div className="h-px bg-gray-100 mx-[-16px]"></div>
+                            <div className="flex justify-between items-center py-4 cursor-pointer active:bg-gray-50 mx-[-16px] px-4 rounded-b-2xl"
+                                onClick={openModal}>
+                                <span className="font-medium text-gray-800">开合角度</span>
+                                <div className="flex items-center gap-1">
+                                    <span className="text-gray-500 text-sm font-medium">
+                                        {/* 修改显示模式 */}
+                                        {Math.round(targetLeft)}% | {Math.round(targetRight)}%
+                                    </span>
+                                    <IconChevronRight />
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 单控左 */}
+                        <div className="card">
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-lg font-medium">平开窗（左）</span>
+                                <span className="text-sm text-gray-500 font-mono">{getStatusDisplay(curLeft, movingLeft)}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1"><CustomSlider value={targetLeft} onChange={handleSingleSlideLeft} /></div>
+                                <button className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors"
+                                    onClick={movingLeft ? stopLeft : triggerLeftSuspend}>
+                                    {movingLeft ? <span className="text-sm font-bold text-gray-600">停</span> : <span className="text-xs font-bold text-gray-600">悬开</span>}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 单控右 */}
+                        <div className="card">
+                            <div className="flex justify-between items-center mb-4">
+                                <span className="text-lg font-medium">平开窗（右）</span>
+                                <span className="text-sm text-gray-500 font-mono">{getStatusDisplay(curRight, movingRight)}</span>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1"><CustomSlider value={targetRight} onChange={handleSingleSlideRight} /></div>
+                                <button className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors"
+                                    onClick={movingRight ? stopRight : triggerRightSuspend}>
+                                    {movingRight ? <span className="text-sm font-bold text-gray-600">停</span> : <span className="text-xs font-bold text-gray-600">悬开</span>}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 设备列表入口 (添加点击事件和新ICON) */}
+                        <div 
+                            className="card flex items-center justify-between mt-4 cursor-pointer active:scale-[0.99] transition-transform"
+                            onClick={() => showToast('功能开发中')}
+                        >
+                            <div className="flex items-center">
+                                <div className="icon-container">
+                                    <IconDeviceList />
+                                </div>
+                                <span className="font-medium">设备列表</span>
+                            </div>
+                            <IconArrowRight />
+                        </div>
+                    </div>
+
+                    {showAngleModal && (
+                        <div className="fixed inset-0 z-50 flex items-end justify-center">
+                            <div className="absolute inset-0 bg-black/40 transition-opacity" onClick={() => setShowAngleModal(false)} />
+                            <div className="bg-white w-full rounded-t-3xl p-6 relative z-10 animate-slide-up shadow-2xl">
+                                <div className="flex justify-center mb-6">
+                                    <span className="text-lg font-bold text-gray-800">窗户开合角度</span>
+                                </div>
+                                <div className="mb-8">
+                                    <CustomSlider value={groupSliderValue} onChange={handleGroupSlide} />
+                                </div>
+                                {isAnyMoving ? (
+                                    <button className="w-full h-12 rounded-full bg-gray-100 active:bg-gray-200 text-gray-800 font-bold text-base transition-colors" onClick={stopAll}>停止</button>
+                                ) : (
+                                    <button className="w-full h-12 rounded-full bg-gray-100 active:bg-gray-200 text-gray-800 font-bold text-base transition-colors" onClick={() => setShowAngleModal(false)}>取消</button>
+                                )}
+                                <div className="h-4 w-full"></div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Toast 提示框 */}
+                    {toast.show && (
+                        <div className="toast-message">
+                            {toast.msg}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
